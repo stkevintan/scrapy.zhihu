@@ -10,11 +10,6 @@ import (
 
 const configPath = "./config.toml"
 
-type MysqlConfig struct {
-	DBName    string
-	TableName string
-}
-
 //Config is define of config
 type Config struct {
 	Account     browser.Account

@@ -6,21 +6,13 @@ import (
 	"fmt"
 	"log"
 	"net/url"
-	"os"
-	"os/signal"
-	"syscall"
+	"sync"
 
 	"./api"
 )
 
-var sigs = make(chan os.Signal, 1)
 var store Store
-
-func init() {
-	// `signal.Notify` registers the given channel to
-	// receive notifications of the specified signals.
-	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
-}
+var wg sync.WaitGroup
 
 type paging struct {
 	IsStart bool   `json:"is_start"`
@@ -96,7 +88,7 @@ Loop:
 		select {
 		case <-ctx.Done():
 			log.Printf("Scrap process stopped, with topic: %s\n", topic)
-			return
+			break Loop
 		default:
 			chunk, err := td.TopicList()
 			if err != nil {
@@ -115,27 +107,24 @@ Loop:
 			td.AfterID = afterID
 		}
 	}
+	wg.Done()
 }
 
 //Start the scrapy process
-func Start(topics []string, mysqlConfig MysqlConfig) {
-	ctx, cancel := context.WithCancel(context.Background())
+func Start(ctx context.Context, topics []string, mysqlConfig MysqlConfig) {
 
 	mysqlConfig.Default()
 
-	err := store.Init(ctx, mysqlConfig.DBName, mysqlConfig.TableName)
+	err := store.Init(ctx, mysqlConfig)
 
 	if err != nil {
 		log.Fatalf("cannot connect to database, error: %v", err)
 	}
-
 	for _, topic := range topics {
+		wg.Add(1)
 		go do(ctx, topic)
 	}
-
-	sig := <-sigs
-	log.Printf("Receive the signal, %v\n", sig)
-	cancel()
-	//_ =RedisClient.Close()
-	log.Printf("all process is stopped.")
+	wg.Wait()
+	store.Close()
+	fmt.Println("done")
 }

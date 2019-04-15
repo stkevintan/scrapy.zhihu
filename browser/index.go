@@ -14,12 +14,12 @@ type Account struct {
 }
 
 //Launch is a func
-func Launch(account Account) []*http.Cookie {
+func Launch(ctx context.Context, account Account) []*http.Cookie {
 	if account.Username == "" || account.Password == "" {
 		return []*http.Cookie{}
 	}
 
-	ctxt, cancel := context.WithCancel(context.Background())
+	ctxt, cancel := context.WithCancel(ctx)
 	defer cancel()
 	c, err := chromedp.New(ctxt)
 

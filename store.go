@@ -10,6 +10,12 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
+type MysqlConfig struct {
+	DBName         string
+	TableName      string
+	DataSourceName string
+}
+
 func (conf *MysqlConfig) Default() *MysqlConfig {
 	if conf.DBName == "" {
 		conf.DBName = "scrapy"
@@ -18,28 +24,38 @@ func (conf *MysqlConfig) Default() *MysqlConfig {
 	if conf.TableName == "" {
 		conf.TableName = "topic"
 	}
+
+	if conf.DataSourceName == "" {
+		log.Fatal("dataSourceName is empty")
+	}
 	return conf
 }
 
 //var RedisClient *redis.Client
 type Store struct {
-	db *sql.DB
-	MysqlConfig
+	db     *sql.DB
+	ctx    context.Context
+	config MysqlConfig
 }
 
-func (store *Store) Init(ctx context.Context, DBName string, TableName string) error {
+func (store Store) Close() {
+	store.db.Close()
+}
+
+func (store *Store) Init(ctx context.Context, config MysqlConfig) error {
 	//RedisClient = redis.NewClient(&redis.Options{
 	//	//	Addr:     "127.0.0.1:6379",
 	//	//	Password: "",
 	//	//	DB:       0,
 	//	//})
-	db, err := sql.Open("mysql", "root:root123@tcp(127.0.0.1:3306)/")
+
+	db, err := sql.Open("mysql", config.DataSourceName)
 	if err != nil {
 		return err
 	}
 
 	// create database if not exist
-	_, err = db.Exec("CREATE DATABASE IF NOT EXISTS " + DBName)
+	_, err = db.Exec("CREATE DATABASE IF NOT EXISTS " + config.DBName)
 	if err != nil {
 		return err
 	}
@@ -59,24 +75,15 @@ func (store *Store) Init(ctx context.Context, DBName string, TableName string) e
 	author_user_type VARCHAR(20),
 	created DATETIME,
 	updated DATETIME
-	)`, DBName, TableName))
+	)`, config.DBName, config.TableName))
 
 	if err != nil {
 		return err
 	}
 
 	store.db = db
-	store.DBName = DBName
-	store.TableName = TableName
-
-	go func() {
-		select {
-		case <-ctx.Done():
-			{
-				_ = db.Close()
-			}
-		}
-	}()
+	store.config = config
+	store.ctx = ctx
 	return nil
 }
 
@@ -86,38 +93,44 @@ func formatTimeStamp(ts int64) string {
 }
 
 //SaveTopics save the topic to mysql
-func (store *Store) SaveTopics(topic TopicResult) error {
+func (store Store) SaveTopics(topic TopicResult) error {
 	if store.db == nil {
 		return fmt.Errorf("Store is not initialed or initial failed")
 	}
 	// insert or update
-	stmtIns, err := store.db.Prepare(fmt.Sprintf("REPLACE INTO %s.%s VALUES( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )", store.DBName, store.TableName))
+	stmtIns, err := store.db.Prepare(fmt.Sprintf("REPLACE INTO %s.%s VALUES( ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? )", store.config.DBName, store.config.TableName))
 	if err != nil {
 		return err
 	}
 	for _, detail := range topic.Content {
 		row := detail.Target
 		go func(row target) {
-			_, err := stmtIns.Exec(
-				row.ID,
-				row.Title,
-				row.Url,
-				row.CommentCount,
-				row.VoteUpCount,
-				row.Excerpt,
-				row.Type,
-				row.Author.Name,
-				row.Author.Url,
-				row.Author.AvatarUrl,
-				row.Author.Type,
-				row.Author.UserType,
-				formatTimeStamp(row.Created),
-				formatTimeStamp(row.Updated),
-			)
+			select {
+			case <-store.ctx.Done():
+				return
+			default:
+				_, err := stmtIns.Exec(
+					row.ID,
+					row.Title,
+					row.Url,
+					row.CommentCount,
+					row.VoteUpCount,
+					row.Excerpt,
+					row.Type,
+					row.Author.Name,
+					row.Author.Url,
+					row.Author.AvatarUrl,
+					row.Author.Type,
+					row.Author.UserType,
+					formatTimeStamp(row.Created),
+					formatTimeStamp(row.Updated),
+				)
 
-			if err != nil {
-				log.Printf("Current Stmt execute failed, %v\n", err)
+				if err != nil {
+					log.Printf("current Stmt execute failed, %v", err)
+				}
 			}
+
 		}(row)
 	}
 	return nil
