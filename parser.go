@@ -4,15 +4,22 @@ import (
 	"io/ioutil"
 	"log"
 
-	browser "./browser"
+	"./browser"
 	"github.com/pelletier/go-toml"
 )
 
 const configPath = "./config.toml"
 
+type MysqlConfig struct {
+	DBName    string
+	TableName string
+}
+
 //Config is define of config
 type Config struct {
-	Account browser.Account
+	Account     browser.Account
+	MysqlConfig MysqlConfig
+	TopicNames  []string
 }
 
 var content []byte
@@ -27,8 +34,11 @@ func init() {
 }
 
 //Parser parse the config
-func Parser() Config {
-	config := Config{}
-	toml.Unmarshal(content, &config)
-	return config
+func Parser() (*Config, error) {
+	config := &Config{}
+	err := toml.Unmarshal(content, config)
+	if err != nil {
+		return nil, err
+	}
+	return config, nil
 }

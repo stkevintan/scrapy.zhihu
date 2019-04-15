@@ -10,8 +10,7 @@ import (
 
 //Account is a func
 type Account struct {
-	Username string
-	Password string
+	Username, Password string
 }
 
 //Launch is a func
@@ -22,7 +21,7 @@ func Launch(account Account) []*http.Cookie {
 
 	ctxt, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	c, err := chromedp.New(ctxt, chromedp.WithLog(log.Printf))
+	c, err := chromedp.New(ctxt)
 
 	if err != nil {
 		log.Fatal(err)
